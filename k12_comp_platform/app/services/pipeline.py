@@ -43,6 +43,170 @@ def normalize_money(value):
         return None
 
 
+def is_licensed_source(source: Source) -> bool:
+    return (source.category or '').strip().lower() in {'licensed', 'teacher', 'teachers', 'certified'}
+
+
+def clean_lane(value):
+    if value is None:
+        return ''
+    s = str(value).replace('\n', ' ').strip()
+    s = re.sub(r'\s+', ' ', s)
+    s = s.replace('Bachelors', 'BA').replace("Bachelor's", 'BA').replace('Bachelor', 'BA')
+    s = s.replace('Masters', 'MA').replace("Master's", 'MA').replace('Master', 'MA')
+    s = s.replace('Credits', '').replace('Credit', '')
+    s = s.replace(' + ', '+').replace('+ ', '+').replace(' +', '+')
+    return s.strip()
+
+
+def looks_like_lane(value):
+    s = clean_lane(value).upper()
+    if not s:
+        return False
+    lane_terms = ['BA', 'MA', 'BACHELOR', 'MASTER', 'PHD', 'DOCTOR', 'ED.S', 'EDS', 'LANE']
+    return any(term in s for term in lane_terms) or bool(re.search(r'(BA|MA)\s*\+?\s*\d+', s))
+
+
+def clean_step(value):
+    if value is None:
+        return None
+    s = str(value).strip()
+    m = re.search(r'\b(?:STEP\s*)?([0-9]{1,2})\b', s, re.I)
+    return m.group(1) if m else None
+
+
+def make_licensed_row(source, source_url, schedule, step, lane, salary, year, raw_text):
+    salary = normalize_money(salary)
+    if not salary or not step or not lane:
+        return None
+    lane = clean_lane(lane)
+    return CompRow(
+        district=source.district,
+        state=source.state,
+        category=source.category,
+        raw_title=f'{schedule} - Step {step} - {lane}',
+        min_salary=salary,
+        midpoint=salary,
+        max_salary=salary,
+        step=str(step),
+        lane=lane,
+        year=year,
+        source_url=source_url,
+        raw_text=raw_text[:1000]
+    )
+
+
+def extract_licensed_from_table(table, source: Source, source_url: str, year=None, schedule='Licensed Salary Schedule'):
+    rows = []
+    if not table:
+        return rows
+
+    cleaned = []
+    for row in table:
+        cells = [str(c or '').strip() for c in row]
+        if any(cells):
+            cleaned.append(cells)
+
+    header_idx = None
+    lane_headers = []
+    for i, cells in enumerate(cleaned[:12]):
+        lanes = [clean_lane(c) for c in cells if looks_like_lane(c)]
+        if len(lanes) >= 2:
+            header_idx = i
+            lane_headers = [clean_lane(c) for c in cells]
+            break
+
+    if header_idx is None:
+        return rows
+
+    for cells in cleaned[header_idx + 1:]:
+        if len(cells) < 2:
+            continue
+
+        step = clean_step(cells[0])
+        if not step:
+            continue
+
+        for idx, cell in enumerate(cells[1:], start=1):
+            salary = normalize_money(cell)
+            if not salary:
+                continue
+
+            lane = lane_headers[idx] if idx < len(lane_headers) else f'Lane {idx}'
+            if not lane or not looks_like_lane(lane):
+                lane = f'Lane {idx}'
+
+            raw = ' | '.join([c for c in cells if c])
+            row = make_licensed_row(source, source_url, schedule, step, lane, salary, year, raw)
+            if row:
+                rows.append(row)
+
+    return rows
+
+
+def extract_licensed_pdf(path, source: Source, source_url: str):
+    rows = []
+    with pdfplumber.open(path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            text = page.extract_text() or ''
+            ym = YEAR_RE.search(text)
+            year = ym.group(1) if ym else None
+            schedule = 'Licensed Salary Schedule'
+
+            if 'teacher' in text.lower():
+                schedule = 'Teacher Salary Schedule'
+            elif 'licensed' in text.lower():
+                schedule = 'Licensed Salary Schedule'
+
+            try:
+                tables = page.extract_tables() or []
+            except Exception:
+                tables = []
+
+            for table in tables:
+                rows.extend(extract_licensed_from_table(table, source, source_url, year, schedule))
+
+            # Fallback for PDFs where table extraction fails but text rows line up:
+            # Look for rows that start with a step number followed by several salaries.
+            lines = text.splitlines()
+            possible_lanes = []
+            for line in lines[:30]:
+                parts = re.split(r'\s{2,}|\|', line)
+                lanes = [clean_lane(p) for p in parts if looks_like_lane(p)]
+                if len(lanes) >= 2:
+                    possible_lanes = lanes
+                    break
+
+            if possible_lanes:
+                for line in lines:
+                    step = clean_step(line[:12])
+                    money = [normalize_money(m) for m in MONEY_RE.findall(line)]
+                    money = [m for m in money if m]
+                    if step and len(money) >= 2:
+                        for idx, salary in enumerate(money):
+                            lane = possible_lanes[idx] if idx < len(possible_lanes) else f'Lane {idx + 1}'
+                            row = make_licensed_row(source, source_url, schedule, step, lane, salary, year, f'p{page_num}: {line}')
+                            if row:
+                                rows.append(row)
+
+    return dedupe_rows(rows)
+
+
+def extract_licensed_excel(path, source: Source, source_url: str):
+    rows = []
+    xls = pd.read_excel(path, sheet_name=None, header=None)
+    for sheet, df in xls.items():
+        table = df.fillna('').astype(str).values.tolist()
+        rows.extend(extract_licensed_from_table(table, source, source_url, None, sheet or 'Licensed Salary Schedule'))
+    return dedupe_rows(rows)
+
+
+def extract_licensed_csv(path, source: Source, source_url: str):
+    df = pd.read_csv(path, header=None).fillna('')
+    table = df.astype(str).values.tolist()
+    return dedupe_rows(extract_licensed_from_table(table, source, source_url, None, 'Licensed Salary Schedule'))
+
+
 def likely_direct_file(url, content_type=''):
     u = url.lower().split('?')[0]
     ct = (content_type or '').lower()
@@ -165,7 +329,7 @@ def make_row(source, source_url, title, money, year, raw_text):
 def dedupe_rows(rows):
     seen, out = set(), []
     for r in rows:
-        key = (r.district, r.category, r.raw_title, r.min_salary, r.max_salary, r.raw_text[:100])
+        key = (r.district, r.category, r.raw_title, r.min_salary, r.max_salary, r.step, r.lane, r.raw_text[:100])
         if key not in seen:
             seen.add(key); out.append(r)
     return out
@@ -183,10 +347,16 @@ def run_update(db: Session):
                 doc = Document(source_id=source.id, run_id=run.id, original_url=url, file_name=file_name, content_type=content_type, file_size=size, status='downloaded')
                 db.add(doc); db.commit(); db.refresh(doc)
                 ext = os.path.splitext(path)[1].lower()
-                if ext == '.pdf': rows = extract_pdf(path, source, url)
-                elif ext in ['.xlsx','.xls']: rows = extract_excel(path, source, url)
-                elif ext == '.csv': rows = extract_csv(path, source, url)
-                else: rows = []
+                if is_licensed_source(source):
+                    if ext == '.pdf': rows = extract_licensed_pdf(path, source, url)
+                    elif ext in ['.xlsx','.xls']: rows = extract_licensed_excel(path, source, url)
+                    elif ext == '.csv': rows = extract_licensed_csv(path, source, url)
+                    else: rows = []
+                else:
+                    if ext == '.pdf': rows = extract_pdf(path, source, url)
+                    elif ext in ['.xlsx','.xls']: rows = extract_excel(path, source, url)
+                    elif ext == '.csv': rows = extract_csv(path, source, url)
+                    else: rows = []
                 for row in rows:
                     row.document_id = doc.id
                     db.add(row)
