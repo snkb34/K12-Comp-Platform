@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<section class="panel">
+  <h2>Licensed Market Summary</h2>
+  <p class="hint">
+    This report summarizes each district's licensed salary schedule without assuming that every district uses the same step or lane labels.
+    Minimum is the lowest salary found, midpoint is the median salary across the schedule, and maximum is the highest salary found.
+  </p>
+</section>
+
+<section class="cards">
+  <div><strong>{{ stats.district_count }}</strong><span>District Schedules</span></div>
+  <div><strong>${{ "{:,.0f}".format(stats.average_minimum or 0) }}</strong><span>Average Minimum</span></div>
+  <div><strong>${{ "{:,.0f}".format(stats.average_midpoint or 0) }}</strong><span>Average Midpoint</span></div>
+  <div><strong>${{ "{:,.0f}".format(stats.average_maximum or 0) }}</strong><span>Average Maximum</span></div>
+</section>
+
+{% if jeffco %}
+<section class="panel">
+  <h2>Jeffco Market Position</h2>
+  <table>
+    <tr>
+      <th>District</th>
+      <th>Rank</th>
+      <th>Midpoint</th>
+      <th>Difference from Market Avg.</th>
+      <th>% Difference</th>
+    </tr>
+    <tr>
+      <td>{{ jeffco.district }}</td>
+      <td>{{ jeffco.rank }}</td>
+      <td>${{ "{:,.0f}".format(jeffco.midpoint or 0) }}</td>
+      <td>${{ "{:,.0f}".format(jeffco.difference_from_average_midpoint or 0) }}</td>
+      <td>{{ jeffco.percent_difference_from_average_midpoint or 0 }}%</td>
+    </tr>
+  </table>
+</section>
+{% endif %}
+
+<section class="actions">
+  <a class="button" href="/licensed-market.csv">Download Licensed Market CSV</a>
+</section>
+
+<section class="panel">
+  <h2>Teacher / Licensed Salary Schedule Summary</h2>
+  <table>
+    <tr>
+      <th>Rank</th>
+      <th>District</th>
+      <th>Year</th>
+      <th>Minimum</th>
+      <th>Minimum Label</th>
+      <th>Midpoint</th>
+      <th>Maximum</th>
+      <th>Maximum Label</th>
+      <th># Steps</th>
+      <th># Lanes</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.rank }}</td>
+      <td>{{ r.district }}</td>
+      <td>{{ r.year }}</td>
+      <td>${{ "{:,.0f}".format(r.minimum_salary or 0) }}</td>
+      <td>{{ r.minimum_label }}</td>
+      <td>${{ "{:,.0f}".format(r.midpoint or 0) }}</td>
+      <td>${{ "{:,.0f}".format(r.maximum_salary or 0) }}</td>
+      <td>{{ r.maximum_label }}</td>
+      <td>{{ r.steps }}</td>
+      <td>{{ r.lanes }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% endblock %}
