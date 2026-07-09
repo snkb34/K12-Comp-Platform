@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% block content %}
+<section class="panel"><h2>Search Extracted Rows</h2><form><input name="q" value="{{q}}" placeholder="Search title, district, category"><button>Search</button><a class="button" href="/export.xlsx?q={{q}}">Excel</a><a class="button" href="/export.csv?q={{q}}">CSV</a></form><p>{{count}} rows found. Showing first 500.</p></section>
+<section class="panel"><table><tr><th>District</th><th>Category</th><th>Title</th><th>Min</th><th>Mid</th><th>Max</th><th>Year</th><th>Raw Text</th></tr>{% for r in rows %}<tr><td>{{r['District']}}</td><td>{{r['Category']}}</td><td>{{r['Raw Title']}}</td><td>{{r['Min Salary']}}</td><td>{{r['Midpoint']}}</td><td>{{r['Max Salary']}}</td><td>{{r['Year']}}</td><td>{{r['Raw Text']}}</td></tr>{% endfor %}</table></section>
+{% endblock %}

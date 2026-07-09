@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block content %}
+<section class="panel"><h2>Documents</h2><table><tr><th>Status</th><th>District</th><th>Category</th><th>File</th><th>Size</th><th>Message</th><th>URL</th></tr>{% for d in docs %}<tr><td>{{d.status}}</td><td>{{d.source.district if d.source else ''}}</td><td>{{d.source.category if d.source else ''}}</td><td>{{d.file_name}}</td><td>{{d.file_size}}</td><td>{{d.message}}</td><td class="url">{{d.original_url}}</td></tr>{% endfor %}</table></section>
+{% endblock %}
