@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<section class="panel">
+  <h2>Source Manager</h2>
+  <p class="hint">
+    Manage district compensation source documents here. This is the long-term replacement for manually maintaining separate CSV files.
+  </p>
+</section>
+
+<section class="cards">
+  <div><strong>{{ source_count }}</strong><span>Total Sources</span></div>
+</section>
+
+<section class="panel">
+  <h2>Add Source</h2>
+  <form method="post" action="/source-manager/add" class="grid">
+    <input name="district" placeholder="District" required>
+    <input name="state" placeholder="State" value="CO">
+    <input name="employee_group" placeholder="Employee Group, e.g. Licensed/Admin/Classified">
+    <input name="employee_sub_group" placeholder="Employee Sub Group, e.g. Paraeducators">
+    <input name="document_type" placeholder="Document Type" value="Salary Schedule">
+    <input name="school_year" placeholder="School Year, e.g. 2026-27">
+    <select name="parser">
+      <option value="">Auto Select Parser</option>
+      <option value="Teacher Schedule">Teacher Schedule</option>
+      <option value="Admin Range">Admin Range</option>
+      <option value="Classified Range">Classified Range</option>
+      <option value="Job List">Job List</option>
+      <option value="Contract">Contract</option>
+      <option value="Generic">Generic</option>
+    </select>
+    <select name="status">
+      <option value="Active">Active</option>
+      <option value="Needs Review">Needs Review</option>
+      <option value="Inactive">Inactive</option>
+      <option value="Broken Link">Broken Link</option>
+    </select>
+    <input name="url" placeholder="Source URL" required>
+    <input name="notes" placeholder="Notes">
+    <button>Add Source</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Import Master Source CSV</h2>
+  <form method="post" action="/sources/upload" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv" required>
+    <label><input type="checkbox" name="replace" value="yes"> Replace existing source list</label>
+    <button>Upload CSV</button>
+  </form>
+  <p class="hint">
+    Supports both the old format and the new master format:
+    District, State, Employee Group, Employee Sub Group, Document Type, School Year, Website, Parser, Status, Notes.
+  </p>
+</section>
+
+<section class="actions">
+  <a class="button" href="/source-manager/export.csv">Download Master Source CSV</a>
+</section>
+
+<section class="panel">
+  <h2>Current Sources</h2>
+  <table>
+    <tr>
+      <th>District</th>
+      <th>Group</th>
+      <th>Subgroup</th>
+      <th>Document</th>
+      <th>Year</th>
+      <th>Parser</th>
+      <th>Status</th>
+      <th>URL</th>
+      <th>Notes</th>
+      <th></th>
+    </tr>
+    {% for s in sources %}
+    <tr>
+      <td>{{ s.district }}</td>
+      <td>{{ s.employee_group or s.category }}</td>
+      <td>{{ s.employee_sub_group or '' }}</td>
+      <td>{{ s.document_type or '' }}</td>
+      <td>{{ s.school_year or '' }}</td>
+      <td>{{ s.parser or '' }}</td>
+      <td>{{ s.status or '' }}</td>
+      <td class="url">{{ s.url }}</td>
+      <td>{{ s.notes or '' }}</td>
+      <td>
+        <form method="post" action="/source-manager/delete/{{ s.id }}" onsubmit="return confirm('Delete this source?')">
+          <button class="small">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% endblock %}
