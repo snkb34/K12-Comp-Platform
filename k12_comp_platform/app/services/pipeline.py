@@ -6,7 +6,7 @@ import pandas as pd
 import pdfplumber
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
-from app.models import Source, Run, Document, CompRow
+from app.models import Source, Run, Document, CompRow, PositionCompensation
 
 DOWNLOAD_DIR = os.environ.get('DOWNLOAD_DIR', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'downloads'))
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -40,6 +40,29 @@ def normalize_money(value):
         n = float(s)
         return n if n >= 1000 else None
     except Exception:
+        return None
+
+
+def normalize_rate(value):
+    """
+    Convert hourly or daily rate text into a float.
+
+    Unlike normalize_money(), this allows values below $1,000.
+    """
+    if value is None:
+        return None
+
+    text = (
+        str(value)
+        .replace('$', '')
+        .replace(',', '')
+        .strip()
+    )
+
+    try:
+        rate = float(text)
+        return rate if rate > 0 else None
+    except (TypeError, ValueError):
         return None
 
 
