@@ -64,6 +64,33 @@ def normalize_rate(value):
         return rate if rate > 0 else None
     except (TypeError, ValueError):
         return None
+def clean_table_cell(value):
+    if value is None:
+        return ""
+
+    value = str(value).replace("\n", " ").strip()
+    return re.sub(r"\s+", " ", value)
+
+
+def normalize_grade(value):
+    """
+    Normalize grade labels such as:
+    A
+    B
+    C
+    D
+    Grade A
+    Grade B
+    """
+
+    text = clean_table_cell(value).upper()
+
+    match = re.search(r"\b(?:GRADE\s*)?([A-Z]{1,3})\b", text)
+
+    if match:
+        return match.group(1)
+
+    return None
 
 
 def is_licensed_source(source: Source) -> bool:
@@ -357,6 +384,211 @@ def dedupe_rows(rows):
             seen.add(key); out.append(r)
     return out
 
+def extract_grade_step_position_pdf(
+    path,
+    source: Source,
+    source_url: str,
+    document_id=None,
+):
+    """
+    Extract position-to-grade mappings and grade-to-step rates
+    from a combined PDF.
+
+    Example document sections:
+
+    Job Code | Job Title | Grade
+
+    Step | A | B | C | D
+
+    Returns one PositionCompensation record per job title.
+    """
+
+    job_mappings = []
+    grade_rates = {}
+
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            try:
+                tables = page.extract_tables() or []
+            except Exception:
+                tables = []
+
+            for table in tables:
+                cleaned_table = []
+
+                for row in table:
+                    cells = [
+                        clean_table_cell(cell)
+                        for cell in row
+                    ]
+
+                    if any(cells):
+                        cleaned_table.append(cells)
+
+                if not cleaned_table:
+                    continue
+
+                header = [
+                    cell.lower()
+                    for cell in cleaned_table[0]
+                ]
+
+                # ------------------------------------------
+                # Table 1: Job Code | Job Title | Grade
+                # ------------------------------------------
+                has_job_title = any(
+                    'job title' in cell
+                    for cell in header
+                )
+
+                has_grade = any(
+                    'grade' in cell
+                    for cell in header
+                )
+
+                if has_job_title and has_grade:
+                    job_code_index = next(
+                        (
+                            index
+                            for index, cell in enumerate(header)
+                            if 'job code' in cell
+                        ),
+                        None,
+                    )
+
+                    job_title_index = next(
+                        index
+                        for index, cell in enumerate(header)
+                        if 'job title' in cell
+                    )
+
+                    grade_index = next(
+                        index
+                        for index, cell in enumerate(header)
+                        if 'grade' in cell
+                    )
+
+                    for row in cleaned_table[1:]:
+                        required_index = max(
+                            job_title_index,
+                            grade_index,
+                        )
+
+                        if len(row) <= required_index:
+                            continue
+
+                        job_code = ''
+
+                        if (
+                            job_code_index is not None
+                            and job_code_index < len(row)
+                        ):
+                            job_code = row[job_code_index]
+
+                        job_title = row[job_title_index]
+
+                        grade = normalize_grade(
+                            row[grade_index]
+                        )
+
+                        if job_title and grade:
+                            job_mappings.append(
+                                {
+                                    'job_code': job_code,
+                                    'job_title': job_title,
+                                    'grade': grade,
+                                }
+                            )
+
+                    continue
+
+                # ------------------------------------------
+                # Table 2: Step | A | B | C | D
+                # ------------------------------------------
+                has_step = any(
+                    cell == 'step'
+                    or 'step' in cell
+                    for cell in header
+                )
+
+                grade_columns = {}
+
+                for index, cell in enumerate(
+                    cleaned_table[0]
+                ):
+                    grade = normalize_grade(cell)
+
+                    if grade:
+                        grade_columns[index] = grade
+
+                if has_step and grade_columns:
+                    for row in cleaned_table[1:]:
+                        for column_index, grade in (
+                            grade_columns.items()
+                        ):
+                            if column_index >= len(row):
+                                continue
+
+                            rate = normalize_rate(
+                                row[column_index]
+                            )
+
+                            if rate:
+                                grade_rates.setdefault(
+                                    grade,
+                                    [],
+                                ).append(rate)
+
+    position_rows = []
+
+    for mapping in job_mappings:
+        grade = mapping['grade']
+        rates = grade_rates.get(grade, [])
+
+        if not rates:
+            continue
+
+        hourly_min = min(rates)
+        hourly_max = max(rates)
+
+        position_rows.append(
+            PositionCompensation(
+                source_id=source.id,
+                document_id=document_id,
+                district=source.district,
+                state=source.state,
+                employee_group=(
+                    source.employee_group
+                    or source.category
+                ),
+                employee_sub_group=(
+                    source.employee_sub_group
+                ),
+                school_year=source.school_year,
+                raw_title=mapping['job_title'],
+                standard_title=None,
+                job_code=(
+                    mapping['job_code']
+                    or None
+                ),
+                grade=grade,
+                range_name=f'Grade {grade}',
+                min_salary=None,
+                midpoint=None,
+                max_salary=None,
+                hourly_min=hourly_min,
+                hourly_max=hourly_max,
+                source_url=source_url,
+                confidence_score=1.0,
+            )
+        )
+
+    return position_rows
+def is_grade_step_position_source(source: Source) -> bool:
+    parser = (source.parser or '').strip().lower()
+
+    return parser == 'grade-step position schedule'
+
 def run_update(db: Session):
     run = Run(
         status='running',
@@ -395,10 +627,26 @@ def run_update(db: Session):
 
                 db.add(doc)
                 db.flush()
-
+                
+                if is_grade_step_position_source(source):
+                    db.query(PositionCompensation).filter(
+                      PositionCompensation.source_id == source_id
+                    ).delete(synchronize_session=False)
                 ext = os.path.splitext(path)[1].lower()
 
-                if is_licensed_source(source):
+                               position_rows = []
+                rows = []
+
+                if is_grade_step_position_source(source):
+                    if ext == '.pdf':
+                        position_rows = extract_grade_step_position_pdf(
+                            path=path,
+                            source=source,
+                            source_url=url,
+                            document_id=doc.id,
+                        )
+
+                elif is_licensed_source(source):
                     if ext == '.pdf':
                         rows = extract_licensed_pdf(
                             path,
@@ -417,8 +665,7 @@ def run_update(db: Session):
                             source,
                             url,
                         )
-                    else:
-                        rows = []
+
                 else:
                     if ext == '.pdf':
                         rows = extract_pdf(
@@ -438,20 +685,24 @@ def run_update(db: Session):
                             source,
                             url,
                         )
-                    else:
-                        rows = []
-
                 for row in rows:
                     row.document_id = doc.id
                     db.add(row)
+                for position_row in position_rows:
+                    db.add(position_row)
 
-                if rows:
+                extracted_count = len(rows) + len(position_rows)
+
+                if extracted_count:
                     doc.status = 'extracted'
-                    doc.message = f'Extracted {len(rows)} rows'
+                    doc.message = (
+                        f'Extracted {len(rows)} raw rows '
+                        f'and {len(position_rows)} position records'
+                    )
                 else:
                     doc.status = 'downloaded_no_rows'
                     doc.message = (
-                        'Downloaded but no salary rows recognized'
+                        'Downloaded but no compensation rows recognized'
                     )
 
                 db.commit()
