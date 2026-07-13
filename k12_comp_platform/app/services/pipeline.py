@@ -216,6 +216,23 @@ def extract_licensed_pdf(path, source: Source, source_url: str):
             except Exception:
                 tables = []
 
+            print("=" * 80)
+            print("GRADE-STEP PARSER")
+            print(
+                "SOURCE:",
+                source.district,
+                source.employee_sub_group,
+            )
+            print("PAGE TABLES FOUND:", len(tables))
+
+            for table_index, debug_table in enumerate(tables):
+                print(f"TABLE {table_index}")
+
+                for debug_row in debug_table[:15]:
+                    print(debug_row)
+
+            print("=" * 80)
+
             for table in tables:
                 rows.extend(extract_licensed_from_table(table, source, source_url, year, schedule))
 
@@ -395,16 +412,8 @@ def extract_grade_step_position_pdf(
     document_id=None,
 ):
     """
-    Extract position-to-grade mappings and grade-to-step rates
-    from a combined PDF.
-
-    Example document sections:
-
-    Job Code | Job Title | Grade
-
-    Step | A | B | C | D
-
-    Returns one PositionCompensation record per job title.
+    Extract a combined position-to-grade table and grade-step rate table
+    when pdfplumber returns both visual tables as one merged table.
     """
 
     job_mappings = []
@@ -416,26 +425,14 @@ def extract_grade_step_position_pdf(
                 tables = page.extract_tables() or []
             except Exception:
                 tables = []
-            print("=" * 80)
-            print("GRADE-STEP PARSER")
-            print("SOURCE:", source.district, source.employee_sub_group)
-            print("PAGE TABLES FOUND:", len(tables))
-
-            for table_index, debug_table in enumerate(tables):
-                print(f"TABLE {table_index}")
-
-                for debug_row in debug_table[:15]:
-                    print(debug_row)
-
-            print("=" * 80)
 
             for table in tables:
                 cleaned_table = []
 
-                for row in table:
+                for table_row in table:
                     cells = [
                         clean_table_cell(cell)
-                        for cell in row
+                        for cell in table_row
                     ]
 
                     if any(cells):
@@ -444,128 +441,136 @@ def extract_grade_step_position_pdf(
                 if not cleaned_table:
                     continue
 
-                header = [
-                    cell.lower()
-                    for cell in cleaned_table[0]
-                ]
+                header_index = None
+                header_row = None
 
-                # ------------------------------------------
-                # Table 1: Job Code | Job Title | Grade
-                # ------------------------------------------
-                has_job_title = any(
-                    'job title' in cell
-                    for cell in header
-                )
+                for index, row in enumerate(cleaned_table):
+                    lowered = [cell.lower() for cell in row]
 
-                has_grade = any(
-                    'grade' in cell
-                    for cell in header
-                )
+                    if (
+                        any("job code" in cell for cell in lowered)
+                        and any("job title" in cell for cell in lowered)
+                        and any("grade" in cell for cell in lowered)
+                        and any("step" in cell for cell in lowered)
+                    ):
+                        header_index = index
+                        header_row = row
+                        break
 
-                if has_job_title and has_grade:
-                    job_code_index = next(
-                        (
-                            index
-                            for index, cell in enumerate(header)
-                            if 'job code' in cell
-                        ),
-                        None,
-                    )
-
-                    job_title_index = next(
-                        index
-                        for index, cell in enumerate(header)
-                        if 'job title' in cell
-                    )
-
-                    grade_index = next(
-                        index
-                        for index, cell in enumerate(header)
-                        if 'grade' in cell
-                    )
-
-                    for row in cleaned_table[1:]:
-                        required_index = max(
-                            job_title_index,
-                            grade_index,
-                        )
-
-                        if len(row) <= required_index:
-                            continue
-
-                        job_code = ''
-
-                        if (
-                            job_code_index is not None
-                            and job_code_index < len(row)
-                        ):
-                            job_code = row[job_code_index]
-
-                        job_title = row[job_title_index]
-
-                        grade = normalize_grade(
-                            row[grade_index]
-                        )
-
-                        if job_title and grade:
-                            job_mappings.append(
-                                {
-                                    'job_code': job_code,
-                                    'job_title': job_title,
-                                    'grade': grade,
-                                }
-                            )
-
+                if header_index is None or header_row is None:
                     continue
 
-                # ------------------------------------------
-                # Table 2: Step | A | B | C | D
-                # ------------------------------------------
-                has_step = any(
-                    cell == 'step'
-                    or 'step' in cell
-                    for cell in header
+                lowered_header = [
+                    cell.lower()
+                    for cell in header_row
+                ]
+
+                job_code_index = next(
+                    index
+                    for index, cell in enumerate(lowered_header)
+                    if "job code" in cell
+                )
+                job_title_index = next(
+                    index
+                    for index, cell in enumerate(lowered_header)
+                    if "job title" in cell
+                )
+                job_grade_index = next(
+                    index
+                    for index, cell in enumerate(lowered_header)
+                    if "grade" in cell
+                )
+                step_index = next(
+                    index
+                    for index, cell in enumerate(lowered_header)
+                    if "step" in cell
                 )
 
                 grade_columns = {}
 
-                for index, cell in enumerate(
-                    cleaned_table[0]
-                ):
-                    grade = normalize_grade(cell)
+                for index in range(step_index + 1, len(header_row)):
+                    grade = normalize_grade(header_row[index])
 
                     if grade:
                         grade_columns[index] = grade
 
-                if has_step and grade_columns:
-                    for row in cleaned_table[1:]:
-                        for column_index, grade in (
-                            grade_columns.items()
-                        ):
-                            if column_index >= len(row):
-                                continue
+                for data_row in cleaned_table[header_index + 1:]:
+                    if len(data_row) <= job_grade_index:
+                        continue
 
-                            rate = normalize_rate(
-                                row[column_index]
-                            )
+                    job_code = (
+                        data_row[job_code_index]
+                        if job_code_index < len(data_row)
+                        else ""
+                    )
+                    job_title = (
+                        data_row[job_title_index]
+                        if job_title_index < len(data_row)
+                        else ""
+                    )
+                    job_grade = (
+                        normalize_grade(data_row[job_grade_index])
+                        if job_grade_index < len(data_row)
+                        else None
+                    )
 
-                            if rate:
-                                grade_rates.setdefault(
-                                    grade,
-                                    [],
-                                ).append(rate)
+                    if job_title and job_grade:
+                        job_mappings.append(
+                            {
+                                "job_code": job_code,
+                                "job_title": job_title,
+                                "grade": job_grade,
+                            }
+                        )
+
+                    if step_index >= len(data_row):
+                        continue
+
+                    step = clean_step(data_row[step_index])
+
+                    if not step:
+                        continue
+
+                    for column_index, grade in grade_columns.items():
+                        if column_index >= len(data_row):
+                            continue
+
+                        rate = normalize_rate(
+                            data_row[column_index]
+                        )
+
+                        if rate:
+                            grade_rates.setdefault(
+                                grade,
+                                [],
+                            ).append(rate)
+
+    unique_mappings = {
+        (
+            mapping["job_code"],
+            mapping["job_title"],
+            mapping["grade"],
+        ): mapping
+        for mapping in job_mappings
+    }
 
     position_rows = []
 
-    for mapping in job_mappings:
-        grade = mapping['grade']
-        rates = grade_rates.get(grade, [])
+    for mapping in unique_mappings.values():
+        rates = grade_rates.get(
+            mapping["grade"],
+            [],
+        )
 
         if not rates:
             continue
 
-        hourly_min = min(rates)
-        hourly_max = max(rates)
+        hourly_minimum = min(rates)
+        hourly_maximum = max(rates)
+        hourly_midpoint = round(
+            (hourly_minimum + hourly_maximum) / 2,
+            3,
+        )
 
         position_rows.append(
             PositionCompensation(
@@ -581,19 +586,21 @@ def extract_grade_step_position_pdf(
                     source.employee_sub_group
                 ),
                 school_year=source.school_year,
-                raw_title=mapping['job_title'],
+                raw_title=mapping["job_title"],
                 standard_title=None,
                 job_code=(
-                    mapping['job_code']
+                    mapping["job_code"]
                     or None
                 ),
-                grade=grade,
-                range_name=f'Grade {grade}',
+                grade=mapping["grade"],
+                range_name=(
+                    f"Grade {mapping['grade']}"
+                ),
                 min_salary=None,
                 midpoint=None,
                 max_salary=None,
-                hourly_min=hourly_min,
-                hourly_max=hourly_max,
+                hourly_min=hourly_minimum,
+                hourly_max=hourly_maximum,
                 source_url=source_url,
                 confidence_score=1.0,
             )
@@ -601,11 +608,6 @@ def extract_grade_step_position_pdf(
 
     return position_rows
 
-
-def is_grade_step_position_source(source: Source) -> bool:
-    parser = (source.parser or '').strip().lower()
-
-    return parser == 'grade-step position schedule'
 
 
 def run_update(db: Session):
