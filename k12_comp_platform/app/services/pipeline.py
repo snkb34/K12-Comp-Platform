@@ -364,9 +364,20 @@ def run_update(db: Session):
                 doc.message = f'Extracted {len(rows)} rows' if rows else 'Downloaded but no salary rows recognized'
                 db.commit()
                 docs += 1; total_rows += len(rows)
-            except Exception as e:
-                doc = Document(source_id=source.id, run_id=run.id, original_url=url, status='failed', message=str(e)[:1000])
-                db.add(doc); db.commit()
+      except Exception as e:
+
+    db.rollback()
+
+    failed_doc = Document(
+        source_id=source.id,
+        run_id=run.id,
+        original_url=url,
+        status="failed",
+        message=str(e)[:1000]
+    )
+
+    db.add(failed_doc)
+    db.commit()
     run.status = 'completed'
     run.documents_downloaded = docs
     run.rows_extracted = total_rows
