@@ -98,7 +98,11 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
 
 
 @app.post('/sources/upload')
-async def upload_sources(file: UploadFile = File(...), replace: str = Form('no'), db: Session = Depends(get_db)):
+async def upload_sources(
+    file: UploadFile = File(...),
+    replace: str = Form('no'),
+    db: Session = Depends(get_db),
+):
     content = await file.read()
     df = pd.read_csv(io.BytesIO(content)).fillna('')
 
@@ -113,31 +117,60 @@ async def upload_sources(file: UploadFile = File(...), replace: str = Form('no')
         state = _get_csv_value(r, 'State', 'state')
         url = _get_csv_value(r, 'Website', 'website', 'URL', 'url')
 
-        # New master-source fields
-        employee_group = _get_csv_value(r, 'Employee Group', 'employee_group', 'Category', 'category')
-        employee_sub_group = _get_csv_value(r, 'Employee Sub Group', 'employee_sub_group', 'Sub Group', 'sub_group')
-        document_type = _get_csv_value(r, 'Document Type', 'document_type')
-        school_year = _get_csv_value(r, 'School Year', 'school_year', 'Year', 'year')
+        employee_group = _get_csv_value(
+            r,
+            'Employee Group',
+            'employee_group',
+            'Category',
+            'category',
+        )
+        employee_sub_group = _get_csv_value(
+            r,
+            'Employee Sub Group',
+            'employee_sub_group',
+            'Sub Group',
+            'sub_group',
+        )
+        document_type = _get_csv_value(
+            r,
+            'Document Type',
+            'document_type',
+        )
+        school_year = _get_csv_value(
+            r,
+            'School Year',
+            'school_year',
+            'Year',
+            'year',
+        )
         parser = _get_csv_value(r, 'Parser', 'parser')
-        status = _source_status(_get_csv_value(r, 'Status', 'status'))
+        status = _source_status(
+            _get_csv_value(r, 'Status', 'status')
+        )
         notes = _get_csv_value(r, 'Notes', 'notes')
 
-        # Backward-compatible category field
-        category = _get_csv_value(r, 'Category', 'category') or employee_group
+        category = (
+            _get_csv_value(r, 'Category', 'category')
+            or employee_group
+        )
 
-              if not parser:
-            parser = _source_parser_for(employee_group or category, document_type)
-
-        employee_group_value = (employee_group or category).strip()
+        employee_group_value = (
+            employee_group or category
+        ).strip()
         employee_sub_group_value = (
-            employee_sub_group
-            or employee_group_value
+            employee_sub_group or employee_group_value
         ).strip()
         document_type_value = (
             document_type or 'Salary Schedule'
         ).strip()
         school_year_value = school_year.strip()
         url_value = url.strip()
+
+        if not parser:
+            parser = _source_parser_for(
+                employee_group_value,
+                document_type_value,
+            )
 
         existing_source = (
             db.query(Source)
@@ -155,7 +188,8 @@ async def upload_sources(file: UploadFile = File(...), replace: str = Form('no')
                 Source(
                     district=district.strip(),
                     state=state.strip(),
-                    category=category.strip() or employee_group_value,
+                    category=category.strip()
+                    or employee_group_value,
                     employee_group=employee_group_value,
                     employee_sub_group=employee_sub_group_value,
                     document_type=document_type_value,
