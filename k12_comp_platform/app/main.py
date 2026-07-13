@@ -125,10 +125,10 @@ async def upload_sources(file: UploadFile = File(...), replace: str = Form('no')
         # Backward-compatible category field
         category = _get_csv_value(r, 'Category', 'category') or employee_group
 
-        if not parser:
+              if not parser:
             parser = _source_parser_for(employee_group or category, document_type)
 
-              employee_group_value = (employee_group or category).strip()
+        employee_group_value = (employee_group or category).strip()
         employee_sub_group_value = (
             employee_sub_group
             or employee_group_value
