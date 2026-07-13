@@ -128,20 +128,44 @@ async def upload_sources(file: UploadFile = File(...), replace: str = Form('no')
         if not parser:
             parser = _source_parser_for(employee_group or category, document_type)
 
-        if district and url and not db.query(Source).filter(Source.url == url).first():
-            db.add(Source(
-                district=district,
-                state=state,
-                category=category,
-                employee_group=employee_group or category,
-                employee_sub_group=employee_sub_group or employee_group or category,
-                document_type=document_type or 'Salary Schedule',
-                school_year=school_year,
-                parser=parser,
-                status=status,
-                notes=notes,
-                url=url
-            ))
+              employee_group_value = (employee_group or category).strip()
+        employee_sub_group_value = (
+            employee_sub_group
+            or employee_group_value
+        ).strip()
+        document_type_value = (
+            document_type or 'Salary Schedule'
+        ).strip()
+        school_year_value = school_year.strip()
+        url_value = url.strip()
+
+        existing_source = (
+            db.query(Source)
+            .filter(
+                Source.url == url_value,
+                Source.employee_group == employee_group_value,
+                Source.document_type == document_type_value,
+                Source.school_year == school_year_value,
+            )
+            .first()
+        )
+
+        if district and url_value and not existing_source:
+            db.add(
+                Source(
+                    district=district.strip(),
+                    state=state.strip(),
+                    category=category.strip() or employee_group_value,
+                    employee_group=employee_group_value,
+                    employee_sub_group=employee_sub_group_value,
+                    document_type=document_type_value,
+                    school_year=school_year_value,
+                    parser=parser.strip(),
+                    status=status.strip() or 'Active',
+                    notes=notes.strip(),
+                    url=url_value,
+                )
+            )
 
     db.commit()
     return RedirectResponse('/', status_code=303)
@@ -171,28 +195,54 @@ def source_manager_add(
     status: str = Form('Active'),
     url: str = Form(...),
     notes: str = Form(''),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    district = district.strip()
-    url = url.strip()
-    employee_group = employee_group.strip()
-    document_type = document_type.strip() or 'Salary Schedule'
-    parser = parser.strip() or _source_parser_for(employee_group, document_type)
+    district_value = district.strip()
+    state_value = state.strip()
+    employee_group_value = employee_group.strip()
+    employee_sub_group_value = (
+        employee_sub_group.strip() or employee_group_value
+    )
+    document_type_value = (
+        document_type.strip() or 'Salary Schedule'
+    )
+    school_year_value = school_year.strip()
+    url_value = url.strip()
+    parser_value = (
+        parser.strip()
+        or _source_parser_for(
+            employee_group_value,
+            document_type_value,
+        )
+    )
 
-    if district and url and not db.query(Source).filter(Source.url == url).first():
-        db.add(Source(
-            district=district,
-            state=state.strip(),
-            category=employee_group,
-            employee_group=employee_group,
-            employee_sub_group=employee_sub_group.strip() or employee_group,
-            document_type=document_type,
-            school_year=school_year.strip(),
-            parser=parser,
-            status=_source_status(status),
-            url=url,
-            notes=notes.strip()
-        ))
+    existing_source = (
+        db.query(Source)
+        .filter(
+            Source.url == url_value,
+            Source.employee_group == employee_group_value,
+            Source.document_type == document_type_value,
+            Source.school_year == school_year_value,
+        )
+        .first()
+    )
+
+    if district_value and url_value and not existing_source:
+        db.add(
+            Source(
+                district=district_value,
+                state=state_value,
+                category=employee_group_value,
+                employee_group=employee_group_value,
+                employee_sub_group=employee_sub_group_value,
+                document_type=document_type_value,
+                school_year=school_year_value,
+                parser=parser_value,
+                status=_source_status(status),
+                url=url_value,
+                notes=notes.strip(),
+            )
+        )
         db.commit()
 
     return RedirectResponse('/source-manager', status_code=303)
