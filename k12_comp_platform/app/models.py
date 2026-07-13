@@ -1,4 +1,14 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKey, Boolean
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Text,
+    Float,
+    ForeignKey,
+    Boolean,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -7,17 +17,22 @@ from app.database import Base
 class Source(Base):
     """
     Master source record for district compensation documents.
-
-    This model is backward-compatible with the original app:
-    - category still exists
-    - url still exists
-    - existing upload/import logic will continue working
-
-    New fields support the long-term Source Manager.
     """
     __tablename__ = 'sources'
 
+    __table_args__ = (
+        UniqueConstraint(
+            'url',
+            'employee_group',
+            'document_type',
+            'school_year',
+            name='uq_source_url_group_document_year',
+        ),
+    )
+
     id = Column(Integer, primary_key=True)
+
+    district = Column(String(200), nullable=False)
 
     district = Column(String(200), nullable=False)
     state = Column(String(20), nullable=True)
@@ -35,7 +50,7 @@ class Source(Base):
     priority = Column(Integer, nullable=True, default=1)
     notes = Column(Text, nullable=True)
 
-    url = Column(Text, nullable=False, unique=True)
+  url = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     documents = relationship('Document', back_populates='source', cascade='all, delete-orphan')
