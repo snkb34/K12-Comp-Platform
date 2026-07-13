@@ -416,7 +416,7 @@ def extract_grade_step_position_pdf(
                 tables = page.extract_tables() or []
             except Exception:
                 tables = []
-                            print("=" * 80)
+            print("=" * 80)
             print("GRADE-STEP PARSER")
             print("SOURCE:", source.district, source.employee_sub_group)
             print("PAGE TABLES FOUND:", len(tables))
