@@ -334,57 +334,135 @@ def dedupe_rows(rows):
             seen.add(key); out.append(r)
     return out
 
-
 def run_update(db: Session):
-    run = Run(status='running', message='Starting update')
-    db.add(run); db.commit(); db.refresh(run)
-    docs = 0; total_rows = 0
-    sources = db.query(Source).order_by(Source.district).all()
+    run = Run(
+        status='running',
+        message='Starting update',
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    docs = 0
+    total_rows = 0
+
+    sources = (
+        db.query(Source)
+        .order_by(Source.district)
+        .all()
+    )
+
     for source in sources:
-        for url in discover_links(source.url):
+        source_id = source.id
+        source_url = source.url
+
+        for url in discover_links(source_url):
             try:
                 path, file_name, content_type, size = download(url)
-                doc = Document(source_id=source.id, run_id=run.id, original_url=url, file_name=file_name, content_type=content_type, file_size=size, status='downloaded')
-                db.add(doc); db.commit(); db.refresh(doc)
+
+                doc = Document(
+                    source_id=source_id,
+                    run_id=run.id,
+                    original_url=url,
+                    file_name=file_name,
+                    content_type=content_type,
+                    file_size=size,
+                    status='downloaded',
+                )
+
+                db.add(doc)
+                db.flush()
+
                 ext = os.path.splitext(path)[1].lower()
+
                 if is_licensed_source(source):
-                    if ext == '.pdf': rows = extract_licensed_pdf(path, source, url)
-                    elif ext in ['.xlsx','.xls']: rows = extract_licensed_excel(path, source, url)
-                    elif ext == '.csv': rows = extract_licensed_csv(path, source, url)
-                    else: rows = []
+                    if ext == '.pdf':
+                        rows = extract_licensed_pdf(
+                            path,
+                            source,
+                            url,
+                        )
+                    elif ext in ['.xlsx', '.xls']:
+                        rows = extract_licensed_excel(
+                            path,
+                            source,
+                            url,
+                        )
+                    elif ext == '.csv':
+                        rows = extract_licensed_csv(
+                            path,
+                            source,
+                            url,
+                        )
+                    else:
+                        rows = []
                 else:
-                    if ext == '.pdf': rows = extract_pdf(path, source, url)
-                    elif ext in ['.xlsx','.xls']: rows = extract_excel(path, source, url)
-                    elif ext == '.csv': rows = extract_csv(path, source, url)
-                    else: rows = []
+                    if ext == '.pdf':
+                        rows = extract_pdf(
+                            path,
+                            source,
+                            url,
+                        )
+                    elif ext in ['.xlsx', '.xls']:
+                        rows = extract_excel(
+                            path,
+                            source,
+                            url,
+                        )
+                    elif ext == '.csv':
+                        rows = extract_csv(
+                            path,
+                            source,
+                            url,
+                        )
+                    else:
+                        rows = []
+
                 for row in rows:
                     row.document_id = doc.id
                     db.add(row)
-                doc.status = 'extracted' if rows else 'downloaded_no_rows'
-                doc.message = f'Extracted {len(rows)} rows' if rows else 'Downloaded but no salary rows recognized'
+
+                if rows:
+                    doc.status = 'extracted'
+                    doc.message = f'Extracted {len(rows)} rows'
+                else:
+                    doc.status = 'downloaded_no_rows'
+                    doc.message = (
+                        'Downloaded but no salary rows recognized'
+                    )
+
                 db.commit()
-                docs += 1; total_rows += len(rows)
-      except Exception as e:
 
-    db.rollback()
+                docs += 1
+                total_rows += len(rows)
 
-    failed_doc = Document(
-        source_id=source.id,
-        run_id=run.id,
-        original_url=url,
-        status="failed",
-        message=str(e)[:1000]
-    )
+            except Exception as e:
+                db.rollback()
 
-    db.add(failed_doc)
-    db.commit()
+                failed_doc = Document(
+                    source_id=source_id,
+                    run_id=run.id,
+                    original_url=url,
+                    status='failed',
+                    message=str(e)[:1000],
+                )
+
+                db.add(failed_doc)
+                db.commit()
+
     run.status = 'completed'
     run.documents_downloaded = docs
     run.rows_extracted = total_rows
-    run.message = f'Completed. Downloaded {docs} documents and extracted {total_rows} rows.'
+    run.message = (
+        f'Completed. Downloaded {docs} documents '
+        f'and extracted {total_rows} rows.'
+    )
     run.finished_at = datetime.utcnow()
+
     db.commit()
+
     return run
+
 
 
 def rows_dataframe(db: Session, q: str = ''):
