@@ -608,7 +608,10 @@ def extract_grade_step_position_pdf(
 
     return position_rows
 
+def is_grade_step_position_source(source: Source) -> bool:
+    parser = (source.parser or '').strip().lower()
 
+    return parser == 'grade-step position schedule'
 
 def run_update(db: Session):
     run = Run(
