@@ -335,7 +335,32 @@ def documents(request: Request, db: Session = Depends(get_db)):
 
 @app.post('/clear-results')
 def clear_results(db: Session = Depends(get_db)):
-    db.query(CompRow).delete(); db.query(Document).delete(); db.query(Run).delete(); db.commit()
+    try:
+        db.query(PositionCompensation).delete(
+            synchronize_session=False
+        )
+        db.query(LicensedScheduleCell).delete(
+            synchronize_session=False
+        )
+        db.query(DataQualityIssue).delete(
+            synchronize_session=False
+        )
+        db.query(CompRow).delete(
+            synchronize_session=False
+        )
+        db.query(Document).delete(
+            synchronize_session=False
+        )
+        db.query(Run).delete(
+            synchronize_session=False
+        )
+
+        db.commit()
+
+    except Exception:
+        db.rollback()
+        raise
+
     return RedirectResponse('/', status_code=303)
 
 @app.get('/export.csv')
