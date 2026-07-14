@@ -8,7 +8,7 @@ import pandas as pd
 
 from app.database import init_db, get_db
 from app.models import Source, Run, Document, CompRow, DataQualityIssue,
-    PositionCompensation, LicensedScheduleCell,
+    PositionCompensation, LicensedScheduleCell
 from app.services.pipeline import preload_sources, run_update, rows_dataframe
 
 APP_VERSION = 'K-12 Compensation Intelligence v0.2.0 - production foundation'
